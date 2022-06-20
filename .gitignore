@@ -1,4 +1,5 @@
 CLIP
+esgd/
 stylegan3
 *.pkl
 __pycache__

@@ -1,3 +1,4 @@
+from subprocess import DEVNULL
 import sys
 sys.path.append('./CLIP')
 sys.path.append('./stylegan3')
@@ -32,7 +33,7 @@ parser.add_argument(
 parser.add_argument(
     '--seed',
     type=int,
-    default=0,
+    default=-1,
     help='Seed for random number generator'
 )
 
@@ -117,9 +118,14 @@ tf = Compose([
   lambda x: torch.clamp((x+1)/2,min=0,max=1),
   ])
 
-def run(timestring):
-  torch.manual_seed(seed)
-
+def run(timestring, seed):
+  
+  if seed == -2:
+    np.random.seed(-1)
+    torch.manual_seed(np.random.random_integers(0,9e9))
+  else:
+    torch.manual_seed(seed)
+    
   # Init
   # Sample 32 inits and choose the one closest to prompt
 
@@ -165,79 +171,89 @@ def run(timestring):
     os.makedirs(f'samples/{timestring}', exist_ok=True)
     pil_image.save(f'samples/{timestring}/{i:04}.jpg')
 
+num_seeds = 10
+
 try:
-  timestring = time.strftime('%Y%m%d%H%M%S')
-  run(timestring)
+  if seed == -2:
+    #create random seeds 
+    seeds = np.random.randint(0,9e9,num_seeds)
+  else:
+    seeds = [seed]
+  for s in seeds:
+    timestring = time.strftime('%Y%m%d%H%M%S')
+    run(timestring, s)
+
+    archive_name = "optional"
+
+    archive_name = boilerplate.slugify(archive_name)
+
+    if archive_name != "optional":
+      fname = archive_name
+      # os.rename(f'samples/{timestring}', f'samples/{fname}')
+    else:
+      fname = timestring
+
+    # Save images as a tar archive
+    #!tar cf samples/{fname}.tar samples/{timestring}
+
+    #if os.path.isdir('drive/MyDrive/samples'):
+    #  shutil.copyfile(f'samples/{fname}.tar', f'drive/MyDrive/samples/{fname}.tar')
+    #else:
+    #  files.download(f'samples/{fname}.tar')
+
+    ## create video
+
+    if create_video:
+      frames = os.listdir(f"samples/{timestring}")
+      frames = len(list(filter(lambda filename: filename.endswith(".jpg"), frames))) #Get number of jpg generated
+
+      init_frame = 1 #This is the frame where the video will start
+      last_frame = frames #You can change i to the number of the last frame you want to generate. It will raise an error if that number of frames does not exist.
+
+      min_fps = 10
+      max_fps = 60
+
+      total_frames = last_frame-init_frame
+
+      #Desired video time in seconds
+      #@param {type:"number"}
+      video_length = args.video_length
+      #Video filename
+      #@param {type:"string"}
+      video_name = prompt + "-" + str(s) 
+      video_name = boilerplate.slugify(video_name)
+
+      if not video_name:
+          video_name = "video"
+      
+      frames = []
+      print('Generating video...')
+      for i in range(init_frame,last_frame): #
+          filename = f"samples/{timestring}/{i:04}.jpg"
+          frames.append(PIL.Image.open(filename))
+
+      fps = np.clip(total_frames/video_length,min_fps,max_fps)
+
+      print("Generating video...")
+
+      from subprocess import Popen, PIPE, DEVNULL
+      p = Popen(['ffmpeg', '-y', '-f', 'image2pipe', '-vcodec', 'png', '-r', str(fps), '-i', '-', '-vcodec', 'libx264', '-r', str(fps), '-pix_fmt', 'yuv420p', '-crf', '17', '-preset', 'veryslow', f'samples/{video_name}.mp4'], stdin=PIPE, stdout=DEVNULL)
+      
+      for im in frames:
+          im.save(p.stdin, 'PNG')
+      
+      p.stdin.close()
+
+      #flush p
+      #p.communicate()
+      p.wait()
+
+
+      print("The video is ready")
+
 except KeyboardInterrupt:
   pass
 
 
 #download images
 #@param {type:"string"}
-archive_name = "optional"
-
-archive_name = boilerplate.slugify(archive_name)
-
-if archive_name != "optional":
-  fname = archive_name
-  # os.rename(f'samples/{timestring}', f'samples/{fname}')
-else:
-  fname = timestring
-
-# Save images as a tar archive
-#!tar cf samples/{fname}.tar samples/{timestring}
-
-#if os.path.isdir('drive/MyDrive/samples'):
-#  shutil.copyfile(f'samples/{fname}.tar', f'drive/MyDrive/samples/{fname}.tar')
-#else:
-#  files.download(f'samples/{fname}.tar')
-
-## create video
-
-if create_video:
-    frames = os.listdir(f"samples/{timestring}")
-    frames = len(list(filter(lambda filename: filename.endswith(".jpg"), frames))) #Get number of jpg generated
-
-    init_frame = 1 #This is the frame where the video will start
-    last_frame = frames #You can change i to the number of the last frame you want to generate. It will raise an error if that number of frames does not exist.
-
-    min_fps = 10
-    max_fps = 60
-
-    total_frames = last_frame-init_frame
-
-    #Desired video time in seconds
-    #@param {type:"number"}
-    video_length = args.video_length
-    #Video filename
-    #@param {type:"string"}
-    video_name = prompt + "-" + str(seed) 
-    video_name = boilerplate.slugify(video_name)
-
-    if not video_name:
-        video_name = "video"
-    
-    frames = []
-    print('Generating video...')
-    for i in range(init_frame,last_frame): #
-        filename = f"samples/{timestring}/{i:04}.jpg"
-        frames.append(PIL.Image.open(filename))
-
-    fps = np.clip(total_frames/video_length,min_fps,max_fps)
-
-    print("Generating video...")
-
-    from subprocess import Popen, PIPE
-    p = Popen(['ffmpeg', '-y', '-f', 'image2pipe', '-vcodec', 'png', '-r', str(fps), '-i', '-', '-vcodec', 'libx264', '-r', str(fps), '-pix_fmt', 'yuv420p', '-crf', '17', '-preset', 'veryslow', f'samples/{video_name}.mp4'], stdin=PIPE)
-    
-    for im in frames:
-        im.save(p.stdin, 'PNG')
-    
-    p.stdin.close()
-
-    #flush p
-    p.communicate()
-    p.wait()
-
-
-    print("The video is ready")
